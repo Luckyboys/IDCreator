@@ -1,4 +1,8 @@
-go-idcreator
-============
+#Under developing
 
-idcreator by golang
+```
+import(
+	"go-sql-driver\mysql"
+)
+
+```
