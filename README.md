@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS `counter` (
 ```
 import(
 	"go-sql-driver\mysql"
+	"bradfitz\gomemcache\memcache"
 )
 
 ```

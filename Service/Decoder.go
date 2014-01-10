@@ -10,7 +10,13 @@ import (
 type Message struct {
 	Key            string
 	IncrementValue uint64
+	Action         uint16
 }
+
+const (
+	ACTION_GET  = 1
+	ACTION_INCR = 2
+)
 
 func decode(content []byte) (Message, bool) {
 	buf := bytes.NewReader(content)
@@ -22,7 +28,7 @@ func decode(content []byte) (Message, bool) {
 	if err := decoder.Decode(&m); err == io.EOF {
 		return m, false
 	} else if err != nil {
-		Common.CheckError(err, Common.ERROR)
+		Common.GetLogger().CheckError(err, Common.ERROR)
 		return m, false
 	}
 

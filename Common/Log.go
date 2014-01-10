@@ -1,7 +1,11 @@
 package Common
 
 import (
+	"fmt"
 	"log"
+	"os"
+	"strconv"
+	"time"
 )
 
 const (
@@ -11,16 +15,47 @@ const (
 	ERROR   = iota
 )
 
-func CheckError(err error, level int) bool {
+type Log struct {
+	writer *log.Logger
+	isInit bool
+}
+
+//TODO 日志分文件写入
+var instanceLog *Log = new(Log)
+
+func GetLogger() *Log {
+	if !instanceLog.isInit {
+		instanceLog.isInit = true
+		logfile, err := os.OpenFile(GetConfigInstance().Get("logpath", "/tmp/idcreator.log"), os.O_RDWR|os.O_CREATE|os.O_APPEND, 0777)
+
+		if err != nil {
+			fmt.Printf("%s\r\n", err.Error())
+			os.Exit(-1)
+		}
+
+		instanceLog.writer = log.New(logfile, "", 0)
+	}
+
+	return instanceLog
+}
+
+func (this *Log) CheckError(err error, level int) bool {
 	if err != nil {
-		go WriteLog(err.Error(), level)
+		go this.WriteLog(err.Error(), level)
 		return true
 	}
 
 	return false
 }
 
-func WriteLog(message string, level int) {
+func (this *Log) WriteLog(message string, level int) {
+
+	configLevel, _ := strconv.Atoi(GetConfigInstance().Get("log", "0"))
+
+	if configLevel > level {
+		return
+	}
+
 	var levelString string
 
 	switch level {
@@ -37,9 +72,10 @@ func WriteLog(message string, level int) {
 		levelString = "INFO"
 
 	case NOTICE:
-		return
+
 		levelString = "NOTICE"
 	}
 
-	log.Printf("[%s]:\t%s", levelString, message)
+	var now = time.Now()
+	this.writer.Printf("[%d-%02d-%02d %02d:%02d:%02d][%s]:\t%s", now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), now.Second(), levelString, message)
 }

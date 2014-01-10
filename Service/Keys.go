@@ -3,38 +3,86 @@ package Service
 import (
 	"fmt"
 	"github.com/Luckyboys/IDCreator/Common"
+	"strconv"
 	"sync/atomic"
 	"time"
 )
 
-var keys map[string]*uint64 = make(map[string]*uint64)
+type KeyBox struct {
+	data          map[string]*uint64
+	isUseMemcache bool
+	isInit        bool
+}
 
-func incr(key string, incrementValue uint64) uint64 {
+var instanceKeyBox *KeyBox = new(KeyBox)
 
-	var value uint64
-	if _, exist := keys[key]; !exist {
-		keys[key] = new(uint64)
-		atomic.StoreUint64(keys[key], _getNewKeyValue(key))
+func GetKeyBoxInstance() *KeyBox {
+	if !instanceKeyBox.isInit {
+		instanceKeyBox.init()
+		instanceKeyBox.isInit = true
 	}
 
-	value = atomic.AddUint64(keys[key], incrementValue)
+	return instanceKeyBox
+}
+
+func (this *KeyBox) init() {
+	this.data = make(map[string]*uint64)
+	this.isUseMemcache = Common.GetConfigInstance().Get("isusememcache", "0") == "1"
+}
+
+func (this *KeyBox) incr(key string, incrementValue uint64) (value uint64) {
+
+	if this.isUseMemcache {
+
+		value = GetMemcacheClient().Incrment(key, incrementValue)
+		Common.GetLogger().WriteLog("increment", Common.NOTICE)
+		if value <= uint64(10000) {
+			GetMemcacheClient().Set(key, fmt.Sprintf("%d", this.getNewKeyValue(key)))
+			value = GetMemcacheClient().Incrment(key, incrementValue)
+		}
+
+	} else {
+		if _, exist := this.data[key]; !exist {
+
+			this.data[key] = new(uint64)
+			atomic.StoreUint64(this.data[key], this.getNewKeyValue(key))
+		}
+		value = atomic.AddUint64(this.data[key], incrementValue)
+	}
 
 	if value%10 == 0 {
 		go setDBValue(key, value)
 	}
 
 	if value%100 == 0 {
-		Common.WriteLog(fmt.Sprintf("key: %s , value: %d", key, value), Common.INFO)
+		Common.GetLogger().WriteLog(fmt.Sprintf("key: %s , value: %d", key, value), Common.INFO)
 	}
-
-	return value
+	return
 }
 
-func _getNewKeyValue(key string) uint64 {
+func (this *KeyBox) get(key string) (value uint64) {
+
+	if this.isUseMemcache {
+		value, _ = strconv.ParseUint(GetMemcacheClient().Get(key), 10, 8)
+		if value <= 10000 {
+			value = this.getNewKeyValue(key)
+		}
+	} else {
+		if _, exist := this.data[key]; !exist {
+
+			this.data[key] = new(uint64)
+			atomic.StoreUint64(this.data[key], this.getNewKeyValue(key))
+		}
+		value = *this.data[key]
+	}
+	return
+}
+
+func (this *KeyBox) getNewKeyValue(key string) uint64 {
 
 	var returnValue uint64 = 0
 	returnValue = getDBValue(key)
-	Common.WriteLog(fmt.Sprintf("Get From DB key: %s , value: %d", key, returnValue), Common.NOTICE)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Get From DB key: %s , value: %d", key, returnValue), Common.NOTICE)
 	if returnValue == 0 {
 		returnValue = uint64(time.Now().Unix())
 		go setDBValue(key, returnValue)
@@ -42,6 +90,6 @@ func _getNewKeyValue(key string) uint64 {
 		returnValue += 100
 		go setDBValue(key, returnValue)
 	}
-	Common.WriteLog(fmt.Sprintf("Return Get From DB key: %s , value: %d", key, returnValue), Common.NOTICE)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Return Get From DB key: %s , value: %d", key, returnValue), Common.NOTICE)
 	return returnValue
 }
