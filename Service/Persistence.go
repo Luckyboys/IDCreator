@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	// "fmt"
 	"github.com/Luckyboys/IDCreator/Common"
-	"github.com/Luckyboys/Stringbuilder"
+	"github.com/Luckyboys/StringBuilder"
 	_ "github.com/go-sql-driver/mysql"
 )
 

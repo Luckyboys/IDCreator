@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/Luckyboys/IDCreator/Common"
 	"github.com/bradfitz/gomemcache/memcache"
+	"strconv"
 )
 
 type MemcacheClient struct {
@@ -45,7 +46,9 @@ func (this *MemcacheClient) Set(key string, value string) {
 	item := new(memcache.Item)
 	item.Key = key
 	item.Value = []byte(value)
-	item.Expiration = Common.GetConfigInstance().Get("memcacheexpire", 15*86400)
+	expire, _ := strconv.Atoi(Common.GetConfigInstance().Get("memcacheexpire", strconv.FormatInt(15*86400, 32)))
+	item.Expiration = int32(expire)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Item: %s", item), Common.NOTICE)
 
 	err := this.client.Set(item)
 
