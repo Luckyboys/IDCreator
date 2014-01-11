@@ -5,7 +5,10 @@ import (
 	"github.com/Luckyboys/IDCreator/Common"
 	"github.com/bradfitz/gomemcache/memcache"
 	"strconv"
+	"strings"
 )
+
+var cachePostfix string = "_counter"
 
 type MemcacheClient struct {
 	client *memcache.Client
@@ -21,6 +24,7 @@ func GetMemcacheClient() *MemcacheClient {
 		instanceMemcacheClient.isInit = true
 		instanceMemcacheClient.lock = make(chan int, 5)
 		instanceMemcacheClient.lock <- 1
+		cachePostfix = Common.GetConfigInstance().Get("cachepostfix", "_counter")
 	}
 
 	return instanceMemcacheClient
@@ -29,8 +33,9 @@ func GetMemcacheClient() *MemcacheClient {
 func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
 	this.getLock()
 	defer this.unlock()
-	Common.GetLogger().WriteLog("Try to increment: "+key+" , "+fmt.Sprintf("%d", incrementValue), Common.NOTICE)
-	newValue, err := instanceMemcacheClient.client.Increment(key, incrementValue)
+
+	Common.GetLogger().WriteLog("Try to increment: "+this.getRealKey(key)+" , "+fmt.Sprintf("%d", incrementValue), Common.NOTICE)
+	newValue, err := instanceMemcacheClient.client.Increment(this.getRealKey(key), incrementValue)
 
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return 0
@@ -42,9 +47,9 @@ func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
 func (this *MemcacheClient) Set(key string, value string) {
 	this.getLock()
 	defer this.unlock()
-	Common.GetLogger().WriteLog(fmt.Sprintf("Try to set: %s , %s , %b", key, value, []byte(value)), Common.NOTICE)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Try to set: %s , %s , %b", this.getRealKey(key), value, []byte(value)), Common.NOTICE)
 	item := new(memcache.Item)
-	item.Key = key
+	item.Key = this.getRealKey(key)
 	item.Value = []byte(value)
 	expire, _ := strconv.Atoi(Common.GetConfigInstance().Get("memcacheexpire", strconv.FormatInt(15*86400, 32)))
 	item.Expiration = int32(expire)
@@ -60,8 +65,8 @@ func (this *MemcacheClient) Set(key string, value string) {
 func (this *MemcacheClient) Get(key string) string {
 	this.getLock()
 	defer this.unlock()
-	Common.GetLogger().WriteLog(fmt.Sprintf("Try to get: %s , %b ", key, []byte(key)), Common.NOTICE)
-	item, err := this.client.Get(key)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Try to get: %s , %b ", this.getRealKey(key), []byte(this.getRealKey(key))), Common.NOTICE)
+	item, err := this.client.Get(this.getRealKey(key))
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return ""
 	}
@@ -77,4 +82,8 @@ func (this *MemcacheClient) unlock() {
 
 func (this *MemcacheClient) getLock() {
 	<-this.lock
+}
+
+func (this *MemcacheClient) getRealKey(key string) string {
+	return strings.Join([]string{key, cachePostfix}, "")
 }
