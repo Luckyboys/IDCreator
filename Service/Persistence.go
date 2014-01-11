@@ -2,13 +2,14 @@ package Service
 
 import (
 	"database/sql"
-	// "fmt"
+	"fmt"
 	"github.com/Luckyboys/IDCreator/Common"
 	"github.com/Luckyboys/StringBuilder"
 	_ "github.com/go-sql-driver/mysql"
 )
 
 var mx = make(chan int, 5)
+var tableName string = ""
 
 //TODO 连接别连来连去，用完就Hold住。连接池维护
 func initDB() {
@@ -17,6 +18,7 @@ func initDB() {
 	mx <- 1
 	mx <- 1
 	mx <- 1
+	tableName = Common.GetConfigInstance().Get("tablename", "counter")
 }
 
 func getDBValue(key string) uint64 {
@@ -32,7 +34,7 @@ func getDBValue(key string) uint64 {
 
 	defer db.Close()
 
-	statmentSelect, err := db.Prepare("SELECT `value` FROM `counter` WHERE `key` = ?")
+	statmentSelect, err := db.Prepare(fmt.Sprintf("SELECT `value` FROM `%s` WHERE `key` = ?", tableName))
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		mx <- 1
 		return 0
@@ -65,7 +67,7 @@ func setDBValue(key string, value uint64) {
 
 	defer db.Close()
 
-	statmentInsert, err := db.Prepare("INSERT INTO `counter` ( `key` , `value` ) VALUES ( ? , ? ) ON DUPLICATE KEY UPDATE `value` = ?")
+	statmentInsert, err := db.Prepare(fmt.Sprintf("INSERT INTO `%s` ( `key` , `value` ) VALUES ( ? , ? ) ON DUPLICATE KEY UPDATE `value` = ?", tableName))
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		mx <- 1
 		return
