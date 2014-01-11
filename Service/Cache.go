@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"github.com/Luckyboys/IDCreator/Common"
 	"github.com/bradfitz/gomemcache/memcache"
-	"time"
 )
 
 type MemcacheClient struct {
@@ -42,11 +41,12 @@ func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
 func (this *MemcacheClient) Set(key string, value string) {
 	this.getLock()
 	defer this.unlock()
-	Common.GetLogger().WriteLog("Try to set: "+key+" , "+value, Common.NOTICE)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Try to set: %s , %s , %b", key, value, []byte(value)), Common.NOTICE)
 	item := new(memcache.Item)
 	item.Key = key
 	item.Value = []byte(value)
-	item.Expiration = int32(time.Now().AddDate(0, 0, 30).Unix())
+	item.Expiration = Common.GetConfigInstance().Get("memcacheexpire", 15*86400)
+
 	err := this.client.Set(item)
 
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
@@ -57,11 +57,13 @@ func (this *MemcacheClient) Set(key string, value string) {
 func (this *MemcacheClient) Get(key string) string {
 	this.getLock()
 	defer this.unlock()
-	Common.GetLogger().WriteLog("Try to get: "+key, Common.NOTICE)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Try to get: %s , %b ", key, []byte(key)), Common.NOTICE)
 	item, err := this.client.Get(key)
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return ""
 	}
+
+	Common.GetLogger().WriteLog(fmt.Sprintf("Get result: %s", item.Value), Common.NOTICE)
 
 	return string(item.Value)
 }

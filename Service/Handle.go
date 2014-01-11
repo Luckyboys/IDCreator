@@ -36,8 +36,10 @@ func handleConnection(connection net.Conn) {
 		switch action := message.Action; action {
 		case ACTION_GET:
 			value = GetKeyBoxInstance().get(message.Key)
+			break
 		case ACTION_INCR:
 			value = GetKeyBoxInstance().incr(message.Key, message.IncrementValue)
+			break
 		}
 
 		Common.GetLogger().WriteLog(fmt.Sprintf("Increment OK: key => %s , value => %d", message.Key, value), Common.NOTICE)

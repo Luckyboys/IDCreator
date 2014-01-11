@@ -63,9 +63,10 @@ func (this *KeyBox) incr(key string, incrementValue uint64) (value uint64) {
 func (this *KeyBox) get(key string) (value uint64) {
 
 	if this.isUseMemcache {
-		value, _ = strconv.ParseUint(GetMemcacheClient().Get(key), 10, 8)
+		value, _ = strconv.ParseUint(GetMemcacheClient().Get(key), 10, 64)
 		if value <= 10000 {
 			value = this.getNewKeyValue(key)
+			GetMemcacheClient().Set(key, fmt.Sprintf("%d", value))
 		}
 	} else {
 		if _, exist := this.data[key]; !exist {
