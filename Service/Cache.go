@@ -8,12 +8,17 @@ import (
 	"strings"
 )
 
-var cachePostfix string = "_counter"
+var cachePostfix string = ""
 
 type MemcacheClient struct {
 	client *memcache.Client
 	isInit bool
 	lock   chan int
+}
+
+type MemcachePool struct {
+	clients []MemcacheClient
+	queue   chan int
 }
 
 var instanceMemcacheClient = new(MemcacheClient)
@@ -22,9 +27,9 @@ func GetMemcacheClient() *MemcacheClient {
 	if !instanceMemcacheClient.isInit {
 		instanceMemcacheClient.client = memcache.New(Common.GetConfigInstance().Get("memcache", "127.0.0.1:11211"))
 		instanceMemcacheClient.isInit = true
-		instanceMemcacheClient.lock = make(chan int, 5)
+		instanceMemcacheClient.lock = make(chan int, 1)
 		instanceMemcacheClient.lock <- 1
-		cachePostfix = Common.GetConfigInstance().Get("cachepostfix", "_counter")
+		cachePostfix = Common.GetConfigInstance().Get("cachepostfix", "")
 	}
 
 	return instanceMemcacheClient
