@@ -8,6 +8,7 @@ import (
 	"io"
 	"net"
 	"strconv"
+	"time"
 )
 
 const CONTENT_LENGTH_SIZE = 4
@@ -20,7 +21,7 @@ func handleConnection(connection net.Conn) {
 		if contentLength <= 0 {
 			return
 		}
-		contentBuffer, readSuccess := _read(connection, contentLength)
+		contentBuffer, readSuccess := _read(connection, contentLength, 5*time.Microsecond)
 		Common.GetLogger().WriteLog(fmt.Sprintf("Read Content: %s", bytes.NewBuffer(contentBuffer).String()), Common.NOTICE)
 		if !readSuccess {
 			return
@@ -50,7 +51,7 @@ func handleConnection(connection net.Conn) {
 
 func _getMessageLength(connection net.Conn) uint32 {
 	var contentLength uint32
-	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE)
+	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE, 5*time.Microsecond)
 
 	if !readSuccess {
 		return 0
@@ -61,24 +62,35 @@ func _getMessageLength(connection net.Conn) uint32 {
 	return contentLength
 }
 
-func _read(connection net.Conn, length uint32) ([]byte, bool) {
-	var contentLengthBuffer []byte = make([]byte, length)
-	iLen, err := connection.Read(contentLengthBuffer)
+func _read(connection net.Conn, length uint32, timeoutNano time.Duration) ([]byte, bool) {
 
-	if err == io.EOF {
-		return nil, false
+	buf := bytes.NewBuffer(make([]byte, length))
+
+	var needGetLength uint32 = length
+	_markStartTime()
+
+	for uint32(buf.Len()) <= length && _reachTimeoutLimit(timeoutNano) {
+		var contentLengthBuffer []byte = make([]byte, needGetLength)
+		iLen, err := connection.Read(contentLengthBuffer)
+
+		if err == io.EOF {
+			continue
+		}
+
+		if Common.GetLogger().CheckError(err, Common.WARNING) {
+			return nil, false
+		}
+
+		buf.Write(contentLengthBuffer)
+		needGetLength -= uint32(iLen)
 	}
 
-	if Common.GetLogger().CheckError(err, Common.WARNING) {
-		return nil, false
-	}
-
-	if uint32(iLen) != length {
+	if uint32(buf.Len()) != length {
 		Common.GetLogger().WriteLog("ContentLength Error", Common.ERROR)
 		return nil, false
 	}
 
-	return contentLengthBuffer, true
+	return buf.Bytes(), true
 }
 
 func _write(connection net.Conn, message string) {
@@ -94,4 +106,14 @@ func _write(connection net.Conn, message string) {
 	connection.Write(content.Bytes())
 
 	Common.GetLogger().WriteLog("Writed", Common.NOTICE)
+}
+
+var startReadTime int64
+
+func _markStartTime() {
+	startReadTime = time.Now().UnixNano()
+}
+
+func _reachTimeoutLimit(timeoutNano time.Duration) bool {
+	return !(time.Now().UnixNano()-startReadTime > int64(timeoutNano))
 }
