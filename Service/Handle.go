@@ -19,11 +19,13 @@ func handleConnection(connection net.Conn) {
 		defer connection.Close()
 		Common.GetLogger().WriteLog(fmt.Sprintf("Known Content Length: %d", contentLength), Common.NOTICE)
 		if contentLength <= 0 {
+			Common.GetLogger().WriteLog("Read Length Failover", Common.ERROR)
 			return
 		}
-		contentBuffer, readSuccess := _read(connection, contentLength, 500*time.Millisecond)
+		contentBuffer, readSuccess := _read(connection, contentLength)
 		Common.GetLogger().WriteLog(fmt.Sprintf("Read Content: %s", bytes.NewBuffer(contentBuffer).String()), Common.NOTICE)
 		if !readSuccess {
+			Common.GetLogger().WriteLog("Read Content Failover", Common.ERROR)
 			return
 		}
 
@@ -51,7 +53,7 @@ func handleConnection(connection net.Conn) {
 
 func _getMessageLength(connection net.Conn) uint32 {
 	var contentLength uint32
-	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE, 500*time.Millisecond)
+	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE)
 
 	if !readSuccess {
 		return 0
@@ -62,18 +64,26 @@ func _getMessageLength(connection net.Conn) uint32 {
 	return contentLength
 }
 
-func _read(connection net.Conn, length uint32, timeoutNano time.Duration) ([]byte, bool) {
+func _read(connection net.Conn, length uint32) ([]byte, bool) {
 
+	Common.GetLogger().WriteLog(fmt.Sprintf("Try to Read , Length: %d", length), Common.NOTICE)
 	buf := bytes.NewBuffer(make([]byte, 0))
 
 	var needGetLength uint32 = length
 	_markStartTime()
 
-	for uint32(buf.Len()) <= length && _reachTimeoutLimit(timeoutNano) {
+	for uint32(buf.Len()) < length && !_reachTimeoutLimit() {
 		var contentLengthBuffer []byte = make([]byte, needGetLength)
 		iLen, err := connection.Read(contentLengthBuffer)
 
+		if iLen == 0 {
+			time.Sleep(100 * time.Microsecond)
+			continue
+		}
+
+		Common.GetLogger().WriteLog(fmt.Sprintf("Read Length: %d", iLen), Common.NOTICE)
 		if err == io.EOF {
+			Common.GetLogger().WriteLog("EOF", Common.NOTICE)
 			continue
 		}
 
@@ -81,7 +91,7 @@ func _read(connection net.Conn, length uint32, timeoutNano time.Duration) ([]byt
 			return nil, false
 		}
 
-		buf.Write(contentLengthBuffer)
+		buf.Write(contentLengthBuffer[:iLen])
 		needGetLength -= uint32(iLen)
 	}
 
@@ -114,6 +124,15 @@ func _markStartTime() {
 	startReadTime = time.Now().UnixNano()
 }
 
-func _reachTimeoutLimit(timeoutNano time.Duration) bool {
-	return !(time.Now().UnixNano()-startReadTime > int64(timeoutNano))
+func _reachTimeoutLimit() bool {
+	timeoutNano, _ := strconv.ParseInt(Common.GetConfigInstance().Get("waitingtime", "0"), 10, 64)
+	if timeoutNano == 0 {
+		return false
+	}
+
+	if time.Now().UnixNano()-startReadTime > timeoutNano {
+		Common.GetLogger().WriteLog("Read Content Timeout", Common.WARNING)
+		return true
+	}
+	return false
 }
