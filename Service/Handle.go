@@ -21,7 +21,7 @@ func handleConnection(connection net.Conn) {
 		if contentLength <= 0 {
 			return
 		}
-		contentBuffer, readSuccess := _read(connection, contentLength, 5*time.Microsecond)
+		contentBuffer, readSuccess := _read(connection, contentLength, 500*time.Millisecond)
 		Common.GetLogger().WriteLog(fmt.Sprintf("Read Content: %s", bytes.NewBuffer(contentBuffer).String()), Common.NOTICE)
 		if !readSuccess {
 			return
@@ -51,7 +51,7 @@ func handleConnection(connection net.Conn) {
 
 func _getMessageLength(connection net.Conn) uint32 {
 	var contentLength uint32
-	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE, 5*time.Microsecond)
+	contentLengthBuffer, readSuccess := _read(connection, CONTENT_LENGTH_SIZE, 500*time.Millisecond)
 
 	if !readSuccess {
 		return 0
@@ -64,7 +64,7 @@ func _getMessageLength(connection net.Conn) uint32 {
 
 func _read(connection net.Conn, length uint32, timeoutNano time.Duration) ([]byte, bool) {
 
-	buf := bytes.NewBuffer(make([]byte, length))
+	buf := bytes.NewBuffer(make([]byte, 0))
 
 	var needGetLength uint32 = length
 	_markStartTime()
