@@ -6,89 +6,99 @@ import (
 	"github.com/Luckyboys/IDCreator/Common"
 	"github.com/Luckyboys/StringBuilder"
 	_ "github.com/go-sql-driver/mysql"
+	"time"
 )
 
-var mx = make(chan int, 5)
-var tableName string = ""
+type sqlClient struct {
+	client    *sql.DB
+	isUsing   bool
+	lock      chan int
+	tableName string
+}
 
-//TODO 连接别连来连去，用完就Hold住。连接池维护
+type DBPool struct {
+	clients       []*sqlClient
+	locker        chan int
+	syncSearching chan int
+	isInit        bool
+}
+
+var instanceDBPool = new(DBPool)
+
 func initDB() {
-	mx <- 1
-	mx <- 1
-	mx <- 1
-	mx <- 1
-	mx <- 1
-	tableName = Common.GetConfigInstance().Get("tablename", "counter")
+	if !instanceDBPool.isInit {
+		instanceDBPool.init()
+	}
 }
 
-func getDBValue(key string) uint64 {
-	<-mx
-	var value uint64 = 0
+func (this *DBPool) init() {
+	this.isInit = true
+	threadCount := Common.GetConfigInstance().GetUint("dbthreadcount", 1)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Start to connect db , %d", threadCount), Common.NOTICE)
 
-	db, err := sql.Open("mysql", getConnectMySQLString())
+	this.locker = make(chan int, threadCount)
 
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return 0
+	this.clients = make([]*sqlClient, threadCount)
+
+	for i := 0; uint64(i) < threadCount; i++ {
+		this.clients[i] = new(sqlClient)
+		db, err := sql.Open("mysql", this.getConnectMySQLString())
+		this.clients[i].client = db
+
+		if Common.GetLogger().CheckError(err, Common.ERROR) {
+			panic("Error MySQL")
+		}
+
+		this.clients[i].isUsing = false
+		this.clients[i].lock = make(chan int, 1)
+		this.clients[i].lock <- 1
+		this.clients[i].tableName = Common.GetConfigInstance().Get("tablename", "counter")
+		this.locker <- 1
 	}
-
-	defer db.Close()
-
-	statmentSelect, err := db.Prepare(fmt.Sprintf("SELECT `value` FROM `%s` WHERE `key` = ?", tableName))
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return 0
-	}
-
-	result, err := statmentSelect.Query(key)
-
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return 0
-	}
-
-	for result.Next() {
-		result.Scan(&value)
-		break
-	}
-
-	mx <- 1
-	return value
+	this.syncSearching = make(chan int, 1)
+	this.syncSearching <- 1
 }
 
-func setDBValue(key string, value uint64) {
-	<-mx
-	db, err := sql.Open("mysql", getConnectMySQLString())
+func (this *DBPool) getClient() *sqlClient {
 
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return
+	if !this.isInit {
+		this.init()
 	}
 
-	defer db.Close()
+	this.getLock()
 
-	statmentInsert, err := db.Prepare(fmt.Sprintf("INSERT INTO `%s` ( `key` , `value` ) VALUES ( ? , ? ) ON DUPLICATE KEY UPDATE `value` = ?", tableName))
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return
+	<-this.syncSearching
+
+	for {
+		for _, client := range this.clients {
+			if client.isUsing {
+				continue
+			}
+
+			client.isUsing = true
+			this.syncSearching <- 1
+			return client
+		}
+
+		time.Sleep(10 * time.Microsecond)
 	}
 
-	result, err := statmentInsert.Exec(key, value, value)
-
-	if Common.GetLogger().CheckError(err, Common.ERROR) {
-		mx <- 1
-		return
-	}
-
-	affectedRowCount, err := result.RowsAffected()
-
-	if affectedRowCount <= 0 {
-		Common.GetLogger().WriteLog("Can't Save key: "+key+" , value at: "+string(value), Common.ERROR)
-	}
-	mx <- 1
 }
 
-func getConnectMySQLString() string {
+func (this *sqlClient) Free() {
+	this.isUsing = false
+	instanceDBPool.unlock()
+}
+
+func (this *DBPool) unlock() {
+	this.locker <- 1
+}
+
+func (this *DBPool) getLock() {
+	<-this.locker
+}
+
+func (this *DBPool) getConnectMySQLString() string {
 
 	user := Common.GetConfigInstance().Get("user", "root")
 
@@ -111,4 +121,55 @@ func getConnectMySQLString() string {
 	connectString.Append("@tcp(" + host + ":" + port + ")/" + dbname)
 
 	return connectString.String()
+}
+
+func getDBValue(key string) uint64 {
+
+	var value uint64 = 0
+
+	db := instanceDBPool.getClient()
+
+	defer db.Free()
+
+	statmentSelect, err := db.client.Prepare(fmt.Sprintf("SELECT `value` FROM `%s` WHERE `key` = ?", db.tableName))
+	if Common.GetLogger().CheckError(err, Common.ERROR) {
+		return 0
+	}
+
+	result, err := statmentSelect.Query(key)
+
+	if Common.GetLogger().CheckError(err, Common.ERROR) {
+		return 0
+	}
+
+	for result.Next() {
+		result.Scan(&value)
+		break
+	}
+
+	return value
+}
+
+func setDBValue(key string, value uint64) {
+
+	db := instanceDBPool.getClient()
+
+	defer db.Free()
+
+	statmentInsert, err := db.client.Prepare(fmt.Sprintf("INSERT INTO `%s` ( `key` , `value` ) VALUES ( ? , ? ) ON DUPLICATE KEY UPDATE `value` = ?", db.tableName))
+	if Common.GetLogger().CheckError(err, Common.ERROR) {
+		return
+	}
+
+	result, err := statmentInsert.Exec(key, value, value)
+
+	if Common.GetLogger().CheckError(err, Common.ERROR) {
+		return
+	}
+
+	affectedRowCount, err := result.RowsAffected()
+
+	if affectedRowCount <= 0 {
+		Common.GetLogger().WriteLog("Can't Save key: "+key+" , value at: "+string(value), Common.ERROR)
+	}
 }
