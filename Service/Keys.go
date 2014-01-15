@@ -33,12 +33,13 @@ func (this *KeyBox) init() {
 func (this *KeyBox) incr(key string, incrementValue uint64) (value uint64) {
 
 	if this.isUseMemcache {
-
-		value = GetMemcacheClient().Incrment(key, incrementValue)
+		memcacheClient := GetMemcacheClient()
+		defer memcacheClient.Free()
+		value = memcacheClient.Incrment(key, incrementValue)
 		Common.GetLogger().WriteLog("increment", Common.NOTICE)
 		if value <= uint64(10000) {
-			GetMemcacheClient().Set(key, fmt.Sprintf("%d", this.getNewKeyValue(key)))
-			value = GetMemcacheClient().Incrment(key, incrementValue)
+			memcacheClient.Set(key, fmt.Sprintf("%d", this.getNewKeyValue(key)))
+			value = memcacheClient.Incrment(key, incrementValue)
 		}
 
 	} else {
@@ -63,10 +64,12 @@ func (this *KeyBox) incr(key string, incrementValue uint64) (value uint64) {
 func (this *KeyBox) get(key string) (value uint64) {
 
 	if this.isUseMemcache {
-		value, _ = strconv.ParseUint(GetMemcacheClient().Get(key), 10, 64)
+		memcacheClient := GetMemcacheClient()
+		defer memcacheClient.Free()
+		value, _ = strconv.ParseUint(memcacheClient.Get(key), 10, 64)
 		if value <= 10000 {
 			value = this.getNewKeyValue(key)
-			GetMemcacheClient().Set(key, fmt.Sprintf("%d", value))
+			memcacheClient.Set(key, fmt.Sprintf("%d", value))
 		}
 	} else {
 		if _, exist := this.data[key]; !exist {

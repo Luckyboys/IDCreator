@@ -21,11 +21,18 @@ func StartToListen() {
 	initDB()
 
 	for {
-		conn, err := listener.Accept()
-		if Common.GetLogger().CheckError(err, Common.WARNING) {
-			continue
-		}
+		Common.Try(
+			func() {
+				conn, err := listener.Accept()
+				if Common.GetLogger().CheckError(err, Common.WARNING) {
+					return
+				}
 
-		go handleConnection(conn)
+				go handleConnection(conn)
+			},
+			func(e interface{}) {
+				Common.GetLogger().WriteLog(fmt.Sprintf("Listener ErrorMessage: %s", e), Common.ERROR)
+			})
+
 	}
 }

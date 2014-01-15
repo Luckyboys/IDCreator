@@ -6,57 +6,80 @@ import (
 	"github.com/bradfitz/gomemcache/memcache"
 	"strconv"
 	"strings"
+	"time"
 )
 
 var cachePostfix string = ""
 
 type MemcacheClient struct {
-	client *memcache.Client
-	isInit bool
-	lock   chan int
+	client  *memcache.Client
+	isUsing bool
+	lock    chan int
 }
 
 type MemcachePool struct {
-	clients []MemcacheClient
-	locker  chan int
-	isInit  bool
+	clients       []*MemcacheClient
+	locker        chan int
+	isInit        bool
+	syncSearching chan int
 }
 
-var instanceMemcacheClient = new(MemcacheClient)
+var instanceMemcachePool = new(MemcachePool)
 
 func GetMemcacheClient() *MemcacheClient {
-	if !instanceMemcacheClient.isInit {
-		instanceMemcacheClient.client = memcache.New(Common.GetConfigInstance().Get("memcache", "127.0.0.1:11211"))
-		instanceMemcacheClient.isInit = true
-		instanceMemcacheClient.lock = make(chan int, 1)
-		instanceMemcacheClient.lock <- 1
-		cachePostfix = Common.GetConfigInstance().Get("cachepostfix", "")
-	}
-
-	return instanceMemcacheClient
+	return instanceMemcachePool.getClient()
 }
 
 func (this *MemcachePool) init() {
-	var threadCount uint64 = strconv.ParseUint(Common.GetConfigInstance().Get("memcachethreadcount", "10"), 10, 64)
-
+	this.isInit = true
+	threadCount := Common.GetConfigInstance().GetUint("memcachethreadcount", 1)
+	Common.GetLogger().WriteLog(fmt.Sprintf("Start to connect memcache , %d", threadCount), Common.NOTICE)
+	cachePostfix = Common.GetConfigInstance().Get("cachepostfix", "")
 	this.locker = make(chan int, threadCount)
 
-	for i := 0; i < threadCount; i++ {
-		this.clients[i] = new(MemcacheClient)
+	this.clients = make([]*MemcacheClient, threadCount)
 
+	for i := 0; uint64(i) < threadCount; i++ {
+		this.clients[i] = new(MemcacheClient)
+		this.clients[i].client = memcache.New(Common.GetConfigInstance().Get("memcache", "127.0.0.1:11211"))
+		this.clients[i].isUsing = false
+		this.clients[i].lock = make(chan int, 1)
+		this.clients[i].lock <- 1
+		this.locker <- 1
 	}
-	this.isInit = true
+	this.syncSearching = make(chan int, 1)
+	this.syncSearching <- 1
 }
 
-func (this *MemcachePool) getClient() MemcacheClient {
+func (this *MemcachePool) getClient() *MemcacheClient {
 
 	if !this.isInit {
 		this.init()
 	}
 
-	for _, client := range this.clients {
-		client.isInit
+	this.getLock()
+
+	<-this.syncSearching
+
+	for {
+		for _, client := range this.clients {
+			if client.isUsing {
+				continue
+			}
+
+			client.isUsing = true
+			this.syncSearching <- 1
+			return client
+		}
+
+		time.Sleep(10 * time.Microsecond)
 	}
+
+}
+
+func (this *MemcacheClient) Free() {
+	this.isUsing = false
+	instanceMemcachePool.unlock()
 }
 
 func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
@@ -64,7 +87,7 @@ func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
 	defer this.unlock()
 
 	Common.GetLogger().WriteLog("Try to increment: "+this.getRealKey(key)+" , "+fmt.Sprintf("%d", incrementValue), Common.NOTICE)
-	newValue, err := instanceMemcacheClient.client.Increment(this.getRealKey(key), incrementValue)
+	newValue, err := this.client.Increment(this.getRealKey(key), incrementValue)
 
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return 0
@@ -111,6 +134,14 @@ func (this *MemcacheClient) unlock() {
 
 func (this *MemcacheClient) getLock() {
 	<-this.lock
+}
+
+func (this *MemcachePool) unlock() {
+	this.locker <- 1
+}
+
+func (this *MemcachePool) getLock() {
+	<-this.locker
 }
 
 func (this *MemcacheClient) getRealKey(key string) string {

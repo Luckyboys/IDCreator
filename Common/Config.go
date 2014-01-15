@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 )
 
@@ -79,6 +80,18 @@ func (this *Config) Get(key string, defaultValue string) string {
 		return defaultValue
 	}
 	return this.data[key]
+}
+
+func (this *Config) GetUint(key string, defaultValue uint64) uint64 {
+
+	value := this.Get(key, strconv.FormatUint(defaultValue, 10))
+
+	returnValue, err := strconv.ParseUint(value, 10, 64)
+	if err != nil {
+		return defaultValue
+	}
+
+	return returnValue
 }
 
 func GetConfigInstance() *Config {
