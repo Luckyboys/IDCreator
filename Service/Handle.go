@@ -70,9 +70,10 @@ func _read(connection net.Conn, length uint32) ([]byte, bool) {
 	buf := bytes.NewBuffer(make([]byte, 0))
 
 	var needGetLength uint32 = length
-	_markStartTime()
+	var tl *timeLimitor = new(timeLimitor)
+	tl._markStartTime()
 
-	for uint32(buf.Len()) < length && !_reachTimeoutLimit() {
+	for uint32(buf.Len()) < length && !tl._reachTimeoutLimit() {
 		var contentLengthBuffer []byte = make([]byte, needGetLength)
 		iLen, err := connection.Read(contentLengthBuffer)
 
@@ -120,19 +121,23 @@ func _write(connection net.Conn, message string) {
 
 var startReadTime int64
 
-func _markStartTime() {
-	startReadTime = time.Now().UnixNano()
+func (this *timeLimitor) _markStartTime() {
+	this.startReadTime = time.Now().UnixNano()
 }
 
-func _reachTimeoutLimit() bool {
+func (this *timeLimitor) _reachTimeoutLimit() bool {
 	timeoutNano, _ := strconv.ParseInt(Common.GetConfigInstance().Get("waitingtime", "0"), 10, 64)
 	if timeoutNano == 0 {
 		return false
 	}
 
-	if time.Now().UnixNano()-startReadTime > timeoutNano {
+	if time.Now().UnixNano()-this.startReadTime > timeoutNano {
 		Common.GetLogger().WriteLog("Read Content Timeout", Common.WARNING)
 		return true
 	}
 	return false
+}
+
+type timeLimitor struct {
+	startReadTime int64
 }

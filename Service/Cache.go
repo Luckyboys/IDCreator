@@ -18,7 +18,8 @@ type MemcacheClient struct {
 
 type MemcachePool struct {
 	clients []MemcacheClient
-	queue   chan int
+	locker  chan int
+	isInit  bool
 }
 
 var instanceMemcacheClient = new(MemcacheClient)
@@ -33,6 +34,29 @@ func GetMemcacheClient() *MemcacheClient {
 	}
 
 	return instanceMemcacheClient
+}
+
+func (this *MemcachePool) init() {
+	var threadCount uint64 = strconv.ParseUint(Common.GetConfigInstance().Get("memcachethreadcount", "10"), 10, 64)
+
+	this.locker = make(chan int, threadCount)
+
+	for i := 0; i < threadCount; i++ {
+		this.clients[i] = new(MemcacheClient)
+
+	}
+	this.isInit = true
+}
+
+func (this *MemcachePool) getClient() MemcacheClient {
+
+	if !this.isInit {
+		this.init()
+	}
+
+	for _, client := range this.clients {
+		client.isInit
+	}
 }
 
 func (this *MemcacheClient) Incrment(key string, incrementValue uint64) uint64 {
