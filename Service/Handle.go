@@ -14,18 +14,23 @@ import (
 const CONTENT_LENGTH_SIZE = 4
 
 func handleConnection(connection net.Conn) {
+	var commandCount uint64 = 0
 	for {
 		contentLength := _getMessageLength(connection)
 		defer connection.Close()
 		Common.GetLogger().WriteLog(fmt.Sprintf("Known Content Length: %d", contentLength), Common.NOTICE)
 		if contentLength <= 0 {
-			Common.GetLogger().WriteLog("Read Length Failover", Common.ERROR)
+			if commandCount == 0 {
+				Common.GetLogger().WriteLog("Read Length Failover", Common.ERROR)
+			}
 			return
 		}
 		contentBuffer, readSuccess := _read(connection, contentLength)
 		Common.GetLogger().WriteLog(fmt.Sprintf("Read Content: %s", bytes.NewBuffer(contentBuffer).String()), Common.NOTICE)
 		if !readSuccess {
-			Common.GetLogger().WriteLog("Read Content Failover", Common.ERROR)
+			if commandCount == 0 {
+				Common.GetLogger().WriteLog("Read Content Failover", Common.ERROR)
+			}
 			return
 		}
 
@@ -48,6 +53,7 @@ func handleConnection(connection net.Conn) {
 		Common.GetLogger().WriteLog(fmt.Sprintf("Increment OK: key => %s , value => %d", message.Key, value), Common.NOTICE)
 		_write(connection, "{\"result\":\""+strconv.FormatUint(value, 10)+"\"}")
 		Common.GetLogger().WriteLog("Content Sent , Time to close", Common.NOTICE)
+		commandCount++
 	}
 }
 
@@ -97,7 +103,7 @@ func _read(connection net.Conn, length uint32) ([]byte, bool) {
 	}
 
 	if uint32(buf.Len()) != length {
-		Common.GetLogger().WriteLog("ContentLength Error", Common.ERROR)
+		//Common.GetLogger().WriteLog("ContentLength Error", Common.ERROR)
 		return nil, false
 	}
 
@@ -119,20 +125,22 @@ func _write(connection net.Conn, message string) {
 	Common.GetLogger().WriteLog("Writed", Common.NOTICE)
 }
 
-var startReadTime int64
-
 func (this *timeLimitor) _markStartTime() {
 	this.startReadTime = time.Now().UnixNano()
 }
 
 func (this *timeLimitor) _reachTimeoutLimit() bool {
-	timeoutNano, _ := strconv.ParseInt(Common.GetConfigInstance().Get("waitingtime", "0"), 10, 64)
-	if timeoutNano == 0 {
+
+	strTimeoutNano := Common.GetConfigInstance().Get("waitingtime", "0")
+	fTimeoutNano, _ := strconv.ParseFloat(strTimeoutNano, 64)
+	if fTimeoutNano == 0 {
 		return false
 	}
 
+	var timeoutNano int64 = int64( float64( time.Second ) * fTimeoutNano )
+
 	if time.Now().UnixNano()-this.startReadTime > timeoutNano {
-		Common.GetLogger().WriteLog("Read Content Timeout", Common.WARNING)
+		//Common.GetLogger().WriteLog("Read Content Timeout", Common.WARNING)
 		return true
 	}
 	return false
