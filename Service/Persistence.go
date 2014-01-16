@@ -132,6 +132,7 @@ func getDBValue(key string) uint64 {
 	defer db.Free()
 
 	statmentSelect, err := db.client.Prepare(fmt.Sprintf("SELECT `value` FROM `%s` WHERE `key` = ?", db.tableName))
+	defer statmentSelect.Close()
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return 0
 	}
@@ -160,6 +161,8 @@ func setDBValue(key string, value uint64) {
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return
 	}
+
+	defer statmentInsert.Close()
 
 	result, err := statmentInsert.Exec(key, value, value)
 
