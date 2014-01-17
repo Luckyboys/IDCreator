@@ -7,11 +7,11 @@ import (
 )
 
 func StartToListen() {
-	const ip = "127.0.0.1"
-	const port = 5354
-	var address string = fmt.Sprintf("%s:%d", ip, port)
+	ip := Common.GetConfigInstance().Get("listenhost", "127.0.0.1")
+	port := Common.GetConfigInstance().Get("listenport", "5354")
+	var address string = fmt.Sprintf("%s:%s", ip, port)
 	Common.GetLogger().WriteLog(fmt.Sprintf("Starting to listen %s", address), Common.NOTICE)
-	listener, err := net.Listen("tcp", "127.0.0.1:5354")
+	listener, err := net.Listen("tcp", address)
 	if Common.GetLogger().CheckError(err, Common.ERROR) {
 		return
 	}

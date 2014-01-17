@@ -41,6 +41,7 @@ func handleConnection(connection net.Conn) {
 
 		Common.GetLogger().WriteLog("Decode Successed", Common.NOTICE)
 		var value uint64 = 0
+		var startTime int64 = time.Now().UnixNano()
 		switch action := message.Action; action {
 		case ACTION_GET:
 			value = GetKeyBoxInstance().get(message.Key)
@@ -50,9 +51,15 @@ func handleConnection(connection net.Conn) {
 			break
 		}
 
+		var endTime int64 = time.Now().UnixNano()
+
 		Common.GetLogger().WriteLog(fmt.Sprintf("Increment OK: key => %s , value => %d", message.Key, value), Common.NOTICE)
 		_write(connection, "{\"result\":\""+strconv.FormatUint(value, 10)+"\"}")
 		Common.GetLogger().WriteLog("Content Sent , Time to close", Common.NOTICE)
+
+		if endTime-startTime > int64(200*time.Millisecond) {
+			Common.GetLogger().WriteLog("Executed Too Long", Common.WARNING)
+		}
 		commandCount++
 	}
 }
@@ -137,7 +144,7 @@ func (this *timeLimitor) _reachTimeoutLimit() bool {
 		return false
 	}
 
-	var timeoutNano int64 = int64( float64( time.Second ) * fTimeoutNano )
+	var timeoutNano int64 = int64(float64(time.Second) * fTimeoutNano)
 
 	if time.Now().UnixNano()-this.startReadTime > timeoutNano {
 		//Common.GetLogger().WriteLog("Read Content Timeout", Common.WARNING)
